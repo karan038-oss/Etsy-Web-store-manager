@@ -2207,6 +2207,16 @@ async function handleFormSubmit(event) {
   event.preventDefault();
   const formData = new FormData(event.target);
 
+  // Disable the button + show a saving state so a slow/failed write is
+  // visible instead of looking like the button "did nothing".
+  const submitBtn = event.target.querySelector('button[type="submit"]');
+  const submitBtnOriginalText = submitBtn ? submitBtn.textContent : '';
+  if (submitBtn) {
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Saving...';
+  }
+
+  try {
   if (state.addModalTab === 'order') {
     const gross = parseFloat(formData.get('grossAmount')) || 0;
     const shipping = parseFloat(formData.get('shippingCharged')) || 0;
@@ -2270,8 +2280,19 @@ async function handleFormSubmit(event) {
     await savePayment(newPay);
   }
 
-  closeAddModal();
-  refreshUI();
+    closeAddModal();
+    refreshUI();
+  } catch (err) {
+    // Surface the real reason instead of the button silently "not working" -
+    // most commonly a Firestore security-rules rejection or bad db config.
+    console.error('Failed to save record to Firestore:', err);
+    alert('Could not save this record: ' + (err && err.message ? err.message : err));
+  } finally {
+    if (submitBtn) {
+      submitBtn.disabled = false;
+      submitBtn.textContent = submitBtnOriginalText || 'Save Record';
+    }
+  }
 }
 
 function bindOrderSearch() {
