@@ -1,0 +1,110 @@
+/* Custom Stylesheet for Etsy & Web Store Financial Manager */
+
+/* Smooth view transitions */
+#tab-view-container {
+  animation: fadeIn 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Modal Animation */
+.modal-backdrop {
+  animation: backdropFade 0.2s ease-out;
+}
+
+.modal-card {
+  animation: modalSlideUp 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes backdropFade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes modalSlideUp {
+  from {
+    opacity: 0;
+    transform: scale(0.97) translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+/* Hide scrollbars for clean horizontal tab sliders */
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+.scrollbar-none {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Custom Styled Scrollbars for Tables and Spreadsheet Grid */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.25);
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.4);
+}
+
+/* Excel Spreadsheet Grid Styling */
+.excel-grid-table th,
+.excel-grid-table td {
+  border-color: rgba(226, 232, 240, 0.8);
+}
+
+.dark .excel-grid-table th,
+.dark .excel-grid-table td {
+  border-color: rgba(30, 41, 59, 0.8);
+}
+
+.excel-grid-cell-selected {
+  outline: 2px solid #10b981 !important;
+  outline-offset: -2px;
+  background-color: rgba(16, 185, 129, 0.08) !important;
+}
+
+/* Pulse effects */
+.pulse-emerald {
+  box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.4);
+  animation: pulseEmerald 2s infinite;
+}
+
+@keyframes pulseEmerald {
+  0% {
+    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.4);
+  }
+  70% {
+    box-shadow: 0 0 0 8px rgba(16, 185, 129, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0);
+  }
+}
+
+/* Tooltip styles */
+[title] {
+  position: relative;
+}
