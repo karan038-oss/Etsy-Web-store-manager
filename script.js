@@ -6,6 +6,21 @@
 // 1. INITIAL DATASETS
 // ==========================================
 import { db, auth, storage, realtimeDB } from "./firebase-config.js";
+import {
+  collection,
+  doc,
+  getDocs,
+  getDoc,
+  addDoc,
+  updateDoc,
+  deleteDoc,
+  setDoc,
+  onSnapshot
+} from "https://www.gstatic.com/firebasejs/12.2.1/firebase-firestore.js";
+// NOTE: If your firebase-config.js initializes the SDK via the CDN (gstatic) build
+// instead of an npm bundler, change the import above to match, e.g.:
+// import { collection, doc, getDocs, getDoc, addDoc, updateDoc, deleteDoc, setDoc, onSnapshot }
+//   from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 const INITIAL_ORDERS = [
   {
     id: 'ord-101',
@@ -494,11 +509,11 @@ const NAVIGATION_TABS = [
 const state = {
   activeTab: 'dashboard',
   channelFilter: 'All',
-  themeMode: localStorage.getItem('theme_mode') || 'dark',
-  orders: JSON.parse(localStorage.getItem('etsy_web_orders')) || INITIAL_ORDERS,
-  payments: JSON.parse(localStorage.getItem('etsy_web_payments')) || INITIAL_PAYMENTS,
-  expenses: JSON.parse(localStorage.getItem('etsy_web_expenses')) || INITIAL_EXPENSES,
-  purchases: JSON.parse(localStorage.getItem('etsy_web_purchases')) || INITIAL_PURCHASES,
+  themeMode: 'dark',
+  orders: [],
+  payments: [],
+  expenses: [],
+  purchases: [],
   goals: INITIAL_GOALS,
   
   // UI state
@@ -519,13 +534,154 @@ const state = {
   categoryChartInstance: null
 };
 
-// Persistence helper
-function saveState() {
-  localStorage.setItem('etsy_web_orders', JSON.stringify(state.orders));
-  localStorage.setItem('etsy_web_payments', JSON.stringify(state.payments));
-  localStorage.setItem('etsy_web_expenses', JSON.stringify(state.expenses));
-  localStorage.setItem('etsy_web_purchases', JSON.stringify(state.purchases));
-  localStorage.setItem('theme_mode', state.themeMode);
+// ==========================================
+// 2b. FIRESTORE PERSISTENCE LAYER
+// ==========================================
+// Replaces the old localStorage-based saveState(). Every CRUD operation now
+// talks directly to Firestore, and onSnapshot() listeners (wired up in
+// setupRealtimeListeners()) keep `state` in sync across every open device.
+
+/**
+ * Generic loader: fetches a collection, seeds it with initial demo data the
+ * very first time the app runs against an empty database, and returns the
+ * resulting array (each item carries its Firestore document id as `id`).
+ */
+async function loadCollectionOrSeed(collectionName, seedData) {
+  const snapshot = await getDocs(collection(db, collectionName));
+
+  if (snapshot.empty && Array.isArray(seedData) && seedData.length > 0) {
+    for (const item of seedData) {
+      // Use the demo id as the actual Firestore document id so existing
+      // references (tracking numbers, notes, etc.) stay stable.
+      await setDoc(doc(db, collectionName, item.id), item);
+    }
+    return seedData.map(item => ({ ...item }));
+  }
+
+  return snapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() }));
+}
+
+async function loadOrders() {
+  state.orders = await loadCollectionOrSeed('orders', INITIAL_ORDERS);
+  state.orders.sort((a, b) => new Date(b.orderDate) - new Date(a.orderDate));
+  return state.orders;
+}
+
+async function loadPayments() {
+  state.payments = await loadCollectionOrSeed('payments', INITIAL_PAYMENTS);
+  state.payments.sort((a, b) => new Date(b.payoutDate) - new Date(a.payoutDate));
+  return state.payments;
+}
+
+async function loadExpenses() {
+  state.expenses = await loadCollectionOrSeed('expenses', INITIAL_EXPENSES);
+  state.expenses.sort((a, b) => new Date(b.date) - new Date(a.date));
+  return state.expenses;
+}
+
+async function loadPurchases() {
+  state.purchases = await loadCollectionOrSeed('purchases', INITIAL_PURCHASES);
+  state.purchases.sort((a, b) => new Date(b.date) - new Date(a.date));
+  return state.purchases;
+}
+
+/**
+ * Create-or-update helpers. If the record already has an `id` that matches
+ * an existing Firestore document, it's updated in place; otherwise a new
+ * document is created with addDoc() and its generated id is written back
+ * onto the document so every other function that expects `.id` keeps working.
+ */
+async function saveOrder(order) {
+  if (order.id) {
+    const { id, ...data } = order;
+    await updateDoc(doc(db, 'orders', id), data);
+    return id;
+  }
+  const docRef = await addDoc(collection(db, 'orders'), order);
+  await updateDoc(docRef, { id: docRef.id });
+  return docRef.id;
+}
+
+async function savePayment(payment) {
+  if (payment.id) {
+    const { id, ...data } = payment;
+    await updateDoc(doc(db, 'payments', id), data);
+    return id;
+  }
+  const docRef = await addDoc(collection(db, 'payments'), payment);
+  await updateDoc(docRef, { id: docRef.id });
+  return docRef.id;
+}
+
+async function saveExpense(expense) {
+  if (expense.id) {
+    const { id, ...data } = expense;
+    await updateDoc(doc(db, 'expenses', id), data);
+    return id;
+  }
+  const docRef = await addDoc(collection(db, 'expenses'), expense);
+  await updateDoc(docRef, { id: docRef.id });
+  return docRef.id;
+}
+
+async function savePurchase(purchase) {
+  if (purchase.id) {
+    const { id, ...data } = purchase;
+    await updateDoc(doc(db, 'purchases', id), data);
+    return id;
+  }
+  const docRef = await addDoc(collection(db, 'purchases'), purchase);
+  await updateDoc(docRef, { id: docRef.id });
+  return docRef.id;
+}
+
+/**
+ * Theme / app settings now live in the `settings/theme` document instead of
+ * localStorage's `theme_mode` key.
+ */
+async function loadThemeSetting() {
+  const ref = doc(db, 'settings', 'theme');
+  const snap = await getDoc(ref);
+  if (snap.exists() && snap.data().mode) {
+    state.themeMode = snap.data().mode;
+  } else {
+    await setDoc(ref, { mode: state.themeMode }, { merge: true });
+  }
+  return state.themeMode;
+}
+
+async function saveSettings() {
+  await setDoc(doc(db, 'settings', 'theme'), { mode: state.themeMode }, { merge: true });
+}
+
+/**
+ * Real-time sync: any change made on this device or any other connected
+ * device is reflected instantly without a page refresh.
+ */
+function setupRealtimeListeners() {
+  onSnapshot(collection(db, 'orders'), (snapshot) => {
+    state.orders = snapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() }));
+    state.orders.sort((a, b) => new Date(b.orderDate) - new Date(a.orderDate));
+    refreshUI();
+  });
+
+  onSnapshot(collection(db, 'payments'), (snapshot) => {
+    state.payments = snapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() }));
+    state.payments.sort((a, b) => new Date(b.payoutDate) - new Date(a.payoutDate));
+    refreshUI();
+  });
+
+  onSnapshot(collection(db, 'expenses'), (snapshot) => {
+    state.expenses = snapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() }));
+    state.expenses.sort((a, b) => new Date(b.date) - new Date(a.date));
+    refreshUI();
+  });
+
+  onSnapshot(collection(db, 'purchases'), (snapshot) => {
+    state.purchases = snapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() }));
+    state.purchases.sort((a, b) => new Date(b.date) - new Date(a.date));
+    refreshUI();
+  });
 }
 
 // ==========================================
@@ -802,9 +958,9 @@ function generateGoogleSheetsCSV() {
 // 4. THEME SYSTEM MANAGER
 // ==========================================
 
-function applyTheme(mode) {
+async function applyTheme(mode) {
   state.themeMode = mode;
-  saveState();
+  saveSettings(); // fire-and-forget write to settings/theme in Firestore
 
   const root = document.documentElement;
   let isDark = false;
@@ -2021,31 +2177,33 @@ function setAddModalTab(tab) {
   renderAddEntryModal();
 }
 
-function deleteOrder(id) {
+async function deleteOrder(id) {
+  // Optimistic UI update; the onSnapshot listener will reconcile with
+  // Firestore (and correct anything if the delete fails).
   state.orders = state.orders.filter(o => o.id !== id);
-  saveState();
   refreshUI();
+  await deleteDoc(doc(db, 'orders', id));
 }
 
-function deleteExpense(id) {
+async function deleteExpense(id) {
   state.expenses = state.expenses.filter(e => e.id !== id);
-  saveState();
   refreshUI();
+  await deleteDoc(doc(db, 'expenses', id));
 }
 
-function deletePurchase(id) {
+async function deletePurchase(id) {
   state.purchases = state.purchases.filter(p => p.id !== id);
-  saveState();
   refreshUI();
+  await deleteDoc(doc(db, 'purchases', id));
 }
 
-function deletePayment(id) {
+async function deletePayment(id) {
   state.payments = state.payments.filter(p => p.id !== id);
-  saveState();
   refreshUI();
+  await deleteDoc(doc(db, 'payments', id));
 }
 
-function handleFormSubmit(event) {
+async function handleFormSubmit(event) {
   event.preventDefault();
   const formData = new FormData(event.target);
 
@@ -2054,7 +2212,6 @@ function handleFormSubmit(event) {
     const shipping = parseFloat(formData.get('shippingCharged')) || 0;
     const fees = parseFloat(formData.get('platformFees')) || 0;
     const newOrd = {
-      id: 'ord-' + Date.now(),
       orderNumber: formData.get('orderNumber'),
       channel: formData.get('channel'),
       orderDate: formData.get('orderDate'),
@@ -2069,11 +2226,10 @@ function handleFormSubmit(event) {
       paymentStatus: 'Paid',
       shippingStatus: 'Delivered'
     };
-    state.orders.unshift(newOrd);
+    await saveOrder(newOrd);
   } else if (state.addModalTab === 'expense') {
     const amt = parseFloat(formData.get('amount')) || 0;
     const newExp = {
-      id: 'exp-' + Date.now(),
       date: new Date().toISOString().slice(0, 10),
       category: formData.get('category'),
       channelAllocation: formData.get('channelAllocation'),
@@ -2083,12 +2239,11 @@ function handleFormSubmit(event) {
       description: formData.get('description'),
       taxDeductible: true
     };
-    state.expenses.unshift(newExp);
+    await saveExpense(newExp);
   } else if (state.addModalTab === 'purchase') {
     const qty = parseInt(formData.get('quantity')) || 1;
     const unit = parseFloat(formData.get('unitCost')) || 0;
     const newPur = {
-      id: 'pur-' + Date.now(),
       date: new Date().toISOString().slice(0, 10),
       itemName: formData.get('itemName'),
       category: formData.get('category'),
@@ -2099,12 +2254,11 @@ function handleFormSubmit(event) {
       status: 'In Stock',
       reorderLevel: 2
     };
-    state.purchases.unshift(newPur);
+    await savePurchase(newPur);
   } else if (state.addModalTab === 'payment') {
     const gross = parseFloat(formData.get('grossAmount')) || 0;
     const fees = parseFloat(formData.get('feesDeducted')) || 0;
     const newPay = {
-      id: 'pay-' + Date.now(),
       payoutDate: formData.get('payoutDate'),
       channel: formData.get('channel'),
       grossAmount: gross,
@@ -2113,10 +2267,9 @@ function handleFormSubmit(event) {
       status: 'Settled',
       referenceId: 'REF-' + Math.floor(100000 + Math.random() * 900000)
     };
-    state.payments.unshift(newPay);
+    await savePayment(newPay);
   }
 
-  saveState();
   closeAddModal();
   refreshUI();
 }
@@ -2220,7 +2373,7 @@ document.addEventListener('click', (e) => {
 });
 
 // App Entry Point
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
   // Header export button
   const exportBtn = document.getElementById('btn-export-excel-header');
   if (exportBtn) exportBtn.addEventListener('click', exportToExcelFile);
@@ -2229,5 +2382,44 @@ document.addEventListener('DOMContentLoaded', () => {
   const addBtn = document.getElementById('btn-open-add-modal');
   if (addBtn) addBtn.addEventListener('click', () => openAddModal('order'));
 
+  // Initial data load from Firestore (replaces the old localStorage reads).
+  // Renders once with whatever's cached/available, then hydrates as data arrives.
   refreshUI();
+
+  await Promise.all([
+    loadThemeSetting(),
+    loadOrders(),
+    loadPayments(),
+    loadExpenses(),
+    loadPurchases()
+  ]);
+
+  // Apply the loaded theme (writes are skipped inside applyTheme's saveSettings
+  // call being effectively a no-op merge of the same value already stored).
+  applyTheme(state.themeMode);
+  refreshUI();
+
+  // Enable live, cross-device sync going forward.
+  setupRealtimeListeners();
 });
+
+// ==========================================
+// 7. GLOBAL EXPOSURE FOR INLINE HTML HANDLERS
+// ==========================================
+// This file uses ES module `import` syntax, so top-level function
+// declarations are NOT automatically available to inline onclick="..."
+// attributes in the rendered HTML. Explicitly attach the ones referenced
+// from markup to `window` so those handlers keep working unchanged.
+window.switchTab = switchTab;
+window.openAddModal = openAddModal;
+window.closeAddModal = closeAddModal;
+window.setAddModalTab = setAddModalTab;
+window.handleFormSubmit = handleFormSubmit;
+window.deleteOrder = deleteOrder;
+window.deleteExpense = deleteExpense;
+window.deletePurchase = deletePurchase;
+window.deletePayment = deletePayment;
+window.exportToExcelFile = exportToExcelFile;
+window.setAiTemplate = setAiTemplate;
+window.runAiAnalysis = runAiAnalysis;
+window.copyCsvToClipboard = copyCsvToClipboard;
