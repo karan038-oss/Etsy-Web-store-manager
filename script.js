@@ -5,7 +5,7 @@
 // ==========================================
 // 1. INITIAL DATASETS
 // ==========================================
-
+import { db, auth, storage, realtimeDB } from "./firebase-config.js";
 const INITIAL_ORDERS = [
   {
     id: 'ord-101',
